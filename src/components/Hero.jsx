@@ -55,7 +55,7 @@ function HourNumerals({ r = 130, dial = 'main' }) {
 }
 
 /* ——— Solaris dial (hero) ——— */
-export function SolarisWatch({ size = 420, lume = false, hourDeg, minDeg, secDeg }) {
+export function SolarisWatch({ size = 420, lume = false, hourDeg, minDeg, secDeg, bezelRotation = 0 }) {
   const v = 360;
   const c = v / 2;
   const lumeColor = '#7effa0';
@@ -73,8 +73,20 @@ export function SolarisWatch({ size = 420, lume = false, hourDeg, minDeg, secDeg
       <circle cx={c} cy={c} r="178" fill="#111" stroke="#222" strokeWidth="1.5" />
       <circle cx={c} cy={c} r="175" fill="none" stroke="#1a1a1a" strokeWidth="3" />
 
-      {/* Bezel ring */}
-      <circle cx={c} cy={c} r="170" fill="none" stroke="#1e1e1e" strokeWidth="0.8" />
+      {/* Rotatable Bezel Group */}
+      <g
+        className="bezel-group"
+        style={{
+          transform: `rotate(${bezelRotation}deg)`,
+          transformOrigin: `${c}px ${c}px`,
+          transition: 'transform 0.05s ease-out',
+        }}
+      >
+        {/* Bezel ring */}
+        <circle cx={c} cy={c} r="170" fill="none" stroke="#1e1e1e" strokeWidth="0.8" />
+        {/* Ticks */}
+        <Ticks count={60} r={158} goldAt={[0, 15, 30, 45]} color="#222" />
+      </g>
 
       {/* Sunburst dial */}
       <defs>
@@ -105,9 +117,6 @@ export function SolarisWatch({ size = 420, lume = false, hourDeg, minDeg, secDeg
           />
         );
       })}
-
-      {/* Ticks */}
-      <Ticks count={60} r={158} goldAt={[0, 15, 30, 45]} color="#222" />
 
       {/* Hour numerals */}
       <HourNumerals r={128} dial="main" />
@@ -288,10 +297,120 @@ export default function Hero() {
   const [time, setTime] = useState(new Date());
   const [lume, setLume] = useState(false);
 
+  // Parallax offsets
+  const [parallaxOffset, setParallaxOffset] = useState({ x: 0, y: 0 });
+
+  // Bezel drag/rotate states
+  const [bezelRotation, setBezelRotation] = useState(0);
+  const [interacted, setInteracted] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const watchRef = useRef(null);
+  const dragStartAngle = useRef(0);
+  const baseRotation = useRef(0);
+
   useEffect(() => {
     const id = setInterval(() => setTime(new Date()), 100);
     return () => clearInterval(id);
   }, []);
+
+  // Set up wheel listener directly on watch panel for bezel rotation
+  useEffect(() => {
+    const el = watchRef.current;
+    if (!el) return;
+    const preventScrollAndRotate = (e) => {
+      e.preventDefault();
+      setInteracted(true);
+      setBezelRotation(prev => prev + e.deltaY * 0.15);
+    };
+    el.addEventListener('wheel', preventScrollAndRotate, { passive: false });
+    return () => el.removeEventListener('wheel', preventScrollAndRotate);
+  }, []);
+
+  // Track global mouse move for drag rotation
+  useEffect(() => {
+    if (!isDragging) return;
+    const handleMove = (e) => {
+      if (!watchRef.current) return;
+      const rect = watchRef.current.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const currentAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * (180 / Math.PI);
+      const diff = currentAngle - dragStartAngle.current;
+      setBezelRotation(baseRotation.current + diff);
+    };
+    const handleUp = () => {
+      setIsDragging(false);
+    };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [isDragging]);
+
+  // Track touch events for drag rotation
+  useEffect(() => {
+    if (!isDragging) return;
+    const handleTouchMove = (e) => {
+      if (!watchRef.current || e.touches.length === 0) return;
+      const rect = watchRef.current.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const touch = e.touches[0];
+      const currentAngle = Math.atan2(touch.clientY - cy, touch.clientX - cx) * (180 / Math.PI);
+      const diff = currentAngle - dragStartAngle.current;
+      setBezelRotation(baseRotation.current + diff);
+    };
+    const handleTouchEnd = () => {
+      setIsDragging(false);
+    };
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleTouchEnd);
+    return () => {
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [isDragging]);
+
+  const handleMouseDown = (e) => {
+    if (!watchRef.current) return;
+    setIsDragging(true);
+    setInteracted(true);
+    const rect = watchRef.current.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const startAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * (180 / Math.PI);
+    dragStartAngle.current = startAngle;
+    baseRotation.current = bezelRotation;
+  };
+
+  const handleTouchStart = (e) => {
+    if (!watchRef.current || e.touches.length === 0) return;
+    setIsDragging(true);
+    setInteracted(true);
+    const rect = watchRef.current.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const touch = e.touches[0];
+    const startAngle = Math.atan2(touch.clientY - cy, touch.clientX - cx) * (180 / Math.PI);
+    dragStartAngle.current = startAngle;
+    baseRotation.current = bezelRotation;
+  };
+
+  // Parallax mouse tracker
+  const handleHeroMouseMove = (e) => {
+    const { clientX, clientY } = e;
+    const { innerWidth, innerHeight } = window;
+    const x = (clientX - innerWidth / 2) / (innerWidth / 2); // -1 to 1
+    const y = (clientY - innerHeight / 2) / (innerHeight / 2); // -1 to 1
+    setParallaxOffset({ x: x * 15, y: y * 15 });
+  };
+
+  const handleMouseLeave = () => {
+    setParallaxOffset({ x: 0, y: 0 });
+  };
 
   const s = time.getSeconds() + time.getMilliseconds() / 1000;
   const m = time.getMinutes() + s / 60;
@@ -302,9 +421,28 @@ export default function Hero() {
   const hourDeg = h * 30;
 
   return (
-    <section className={`hero${lume ? ' lume-mode' : ''}`} id="hero" aria-label="Hero">
-      {/* Left — copy */}
-      <div className="hero-copy">
+    <section 
+      className={`hero${lume ? ' lume-mode' : ''}`} 
+      id="hero" 
+      aria-label="Hero"
+      onMouseMove={handleHeroMouseMove}
+      onMouseLeave={handleMouseLeave}
+    >
+      {/* Background layer (very subtle grain texture with offset) */}
+      <div 
+        className="hero-bg-parallax" 
+        style={{
+          transform: `translate(${parallaxOffset.x * 0.5}px, ${parallaxOffset.y * 0.5}px)`
+        }} 
+      />
+
+      {/* Left — copy (Foreground layer: 1.8x shift) */}
+      <div 
+        className="hero-copy"
+        style={{
+          transform: `translate(${parallaxOffset.x * 1.8}px, ${parallaxOffset.y * 1.8}px)`
+        }}
+      >
         <span className="hero-eyebrow">Est. 1887 — Le Brassus, Switzerland</span>
 
         <h1 className="hero-title">
@@ -332,7 +470,7 @@ export default function Hero() {
           </div>
         </div>
 
-        <a href="#collections" className="hero-cta" id="hero-cta-btn">
+        <a href="#collections" className="hero-cta cta-hover" id="hero-cta-btn">
           View Solaris Collection
         </a>
       </div>
@@ -340,18 +478,37 @@ export default function Hero() {
       {/* Divider */}
       <div className="hero-divider" aria-hidden="true" />
 
-      {/* Right — watch */}
-      <div className="hero-watch-panel">
+      {/* Right — watch (Midground layer: 1.0x shift) */}
+      <div 
+        className="hero-watch-panel"
+        ref={watchRef}
+        onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
+        style={{
+          transform: `translate(${parallaxOffset.x * 1.0}px, ${parallaxOffset.y * 1.0}px)`,
+          cursor: isDragging ? 'grabbing' : 'grab'
+        }}
+      >
         <SolarisWatch
           lume={lume}
           hourDeg={hourDeg}
           minDeg={minDeg}
           secDeg={secDeg}
+          bezelRotation={bezelRotation}
         />
+        
+        {/* ROTATE BEZEL Tooltip */}
+        <div className={`bezel-tooltip ${interacted ? 'interacted' : ''}`}>
+          ROTATE BEZEL
+        </div>
+
         <button
-          className="lume-toggle"
+          className="lume-toggle cta-hover"
           id="lume-toggle-btn"
-          onClick={() => setLume(l => !l)}
+          onClick={(e) => {
+            e.stopPropagation(); // Prevent drag triggering
+            setLume(l => !l);
+          }}
           aria-pressed={lume}
           aria-label="Toggle lume mode"
         >
